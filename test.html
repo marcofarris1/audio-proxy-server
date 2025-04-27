@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Audio Proxy Test</title>
+</head>
+<body>
+  <h1>Audio Proxy Server Test</h1>
+  <form id="downloadForm">
+    <input type="text" id="audioUrl" value="https://filesamples.com/samples/audio/mp3/sample3.mp3" style="width:400px">
+    <button type="submit">Download</button>
+  </form>
+  <div id="result"></div>
+
+  <script>
+    document.getElementById('downloadForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const url = document.getElementById('audioUrl').value;
+      const resultDiv = document.getElementById('result');
+      
+      resultDiv.innerHTML = 'Downloading...';
+      
+      try {
+        const response = await fetch('/download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ url })
+        });
+        
+        if (response.ok) {
+          const blob = await response.blob();
+          const audioUrl = URL.createObjectURL(blob);
+          
+          resultDiv.innerHTML = `
+            <p>Download successful! Size: ${blob.size} bytes</p>
+            <audio controls src="${audioUrl}"></audio>
+            <p><a href="${audioUrl}" download="audio.mp3">Download file</a></p>
+          `;
+        } else {
+          const error = await response.json();
+          resultDiv.innerHTML = `Error: ${JSON.stringify(error)}`;
+        }
+      } catch (error) {
+        resultDiv.innerHTML = `Error: ${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
