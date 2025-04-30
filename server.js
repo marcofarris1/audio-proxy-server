@@ -1,8 +1,17 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const ytdl = require('ytdl-core');
+const fs = require('fs-extra');
+const path = require('path');
+const ffmpeg = require('fluent-ffmpeg');
+
 const app = express();
-const PORT = process.env.PORT || 5000; // Changed from 4000 to 5000;
+const PORT = process.env.PORT || 5000;
+
+// Create a temporary directory for downloads
+const tempDir = path.join(__dirname, 'temp');
+fs.ensureDirSync(tempDir);
 
 // Enable CORS for all routes
 app.use(cors());
@@ -31,14 +40,19 @@ app.post('/download', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
     
-    console.log(`Attempting to download: ${url}`);
+    // Check if it's a YouTube URL
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      return handleYouTubeDownload(url, res);
+    }
+    
+    console.log(`Attempting to download regular audio: ${url}`);
     
     // Set headers that mimic a browser
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       'Accept': 'audio/mpeg,audio/*;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://www.youtube.com/'
+      'Referer': 'https://www.google.com/'
     };
     
     console.log('Sending request with headers:', headers);
@@ -92,10 +106,98 @@ app.post('/download', async (req, res) => {
   }
 });
 
+// Dedicated YouTube download endpoint
+app.post('/youtube', async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'YouTube URL is required' });
+    }
+    
+    return handleYouTubeDownload(url, res);
+    
+  } catch (error) {
+    console.error('YouTube download error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to download YouTube audio',
+      message: error.message
+    });
+  }
+});
+
+// Function to handle YouTube downloads
+async function handleYouTubeDownload(url, res) {
+  try {
+    console.log(`Processing YouTube URL: ${url}`);
+    
+    // Validate YouTube URL
+    if (!ytdl.validateURL(url)) {
+      console.log('Invalid YouTube URL');
+      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    }
+    
+    // Get video info
+    const info = await ytdl.getInfo(url);
+    const videoTitle = info.videoDetails.title.replace(/[^\w\s]/gi, '');
+    console.log(`Video title: ${videoTitle}`);
+    
+    // Create unique filename
+    const fileName = `${videoTitle}-${Date.now()}.mp3`;
+    const filePath = path.join(tempDir, fileName);
+    
+    console.log(`Downloading to: ${filePath}`);
+    
+    // Get audio only format
+    const audioFormat = ytdl.chooseFormat(info.formats, { quality: 'highestaudio' });
+    
+    if (!audioFormat) {
+      console.log('No audio format found');
+      return res.status(400).json({ error: 'No audio format available for this video' });
+    }
+    
+    // Download stream
+    const videoStream = ytdl(url, { format: audioFormat });
+    
+    // Convert to MP3 using ffmpeg
+    const ffmpegProcess = ffmpeg(videoStream)
+      .audioBitrate(192)
+      .format('mp3')
+      .on('error', (err) => {
+        console.error('FFmpeg error:', err.message);
+        return res.status(500).json({ error: 'Error processing audio', message: err.message });
+      })
+      .on('end', () => {
+        console.log('Download completed');
+        
+        // Send file to user
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        
+        // Stream file to response and delete afterwards
+        const fileStream = fs.createReadStream(filePath);
+        fileStream.pipe(res);
+        
+        // Clean up file after sending
+        fileStream.on('end', () => {
+          fs.remove(filePath).catch(err => console.error('Error removing temp file:', err));
+        });
+      })
+      .save(filePath);
+      
+  } catch (error) {
+    console.error('YouTube processing error:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to process YouTube video',
+      message: error.message
+    });
+  }
+}
+
+// Clean the temp directory on startup
+fs.emptyDirSync(tempDir);
+
 // Start the server
 app.listen(PORT, () => {
   console.log(`Proxy server running on port ${PORT}`);
-});
-app.get('/test', (req, res) => {
-  res.sendFile(__dirname + '/test.html');
 });
