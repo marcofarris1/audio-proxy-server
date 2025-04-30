@@ -108,3 +108,35 @@ app.post('/download', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Proxy server running on port ${PORT}`);
 });
+// Add this endpoint to your server.js
+app.post('/youtube-direct', async (req, res) => {
+  try {
+    const { videoUrl } = req.body;
+    
+    if (!videoUrl || !videoUrl.includes('youtube.com')) {
+      return res.status(400).json({ error: 'Valid YouTube URL required' });
+    }
+    
+    console.log('Processing YouTube URL directly:', videoUrl);
+    
+    // Stream directly from YouTube
+    const stream = ytdl(videoUrl, { 
+      quality: 'highestaudio',
+      filter: 'audioonly'
+    });
+    
+    // Set headers for binary audio data
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', 'attachment; filename="audio.mp3"');
+    
+    // Pipe the audio stream directly to the response
+    stream.pipe(res);
+    
+  } catch (error) {
+    console.error('YouTube direct error:', error);
+    res.status(500).json({ 
+      error: 'Failed to process YouTube video', 
+      message: error.message 
+    });
+  }
+});
